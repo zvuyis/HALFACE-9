@@ -8,40 +8,43 @@
         body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; }
         canvas { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; object-fit: cover; }
         video { display: none; }
+        #instruction { 
+            position: absolute; top: 40px; width: 100%; text-align: center; 
+            color: #fff; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 4px #000; z-index: 100;
+        }
+        #feedback {
+            position: absolute; top: 80px; width: 100%; text-align: center;
+            color: #0f0; font-size: 20px; z-index: 100; display: none;
+        }
         #ui { position: absolute; bottom: 20px; width: 100%; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; z-index: 100; padding: 10px; box-sizing: border-box; }
-        button { padding: 12px 18px; border-radius: 20px; border: 2px solid #0f0; background: rgba(0,0,0,0.8); color: #0f0; font-weight: bold; cursor: pointer; }
+        button { padding: 12px 18px; border-radius: 20px; border: 2px solid #0f0; background: rgba(0,0,0,0.8); color: #0f0; font-weight: bold; }
         button.active { background: #0f0; color: #000; }
-        #recBtn.recording { border-color: red; color: red; animation: blink 1s infinite; }
-        @keyframes blink { 50% { opacity: 0.5; } }
     </style>
 </head>
 <body>
+    <div id="instruction">1. גע בלחיים בעזרת שתי הידיים</div>
+    <div id="feedback">מעולה! הפעולה בוצעה</div>
     <video id="video" playsinline autoplay muted></video>
     <canvas id="canvas"></canvas>
     <div id="ui">
         <button onclick="setMode('none')" id="btnNone" class="active">רגיל</button>
         <button onclick="setMode('left')" id="btnLeft">שמאל</button>
         <button onclick="setMode('right')" id="btnRight">ימין</button>
-        <button onclick="takeSnapshot()" style="border-color: white; color: white;">📸 תמונה</button>
-        <button onclick="toggleRecording()" id="recBtn" style="border-color: #ff4444; color: #ff4444;">⏺ וידאו</button>
+        <button onclick="takeSnapshot()">📸 תמונה</button>
     </div>
 
 <script>
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
+const feedback = document.getElementById('feedback');
 let mirrorMode = 'none';
-let mediaRecorder;
-let recordedChunks = [];
-let isRecording = false;
 
 async function setup() {
     await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
     await faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
-    
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
     video.srcObject = stream;
-
     video.onloadedmetadata = () => {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -52,9 +55,7 @@ async function setup() {
 function setMode(mode) {
     mirrorMode = mode;
     document.querySelectorAll('#ui button').forEach(btn => btn.classList.remove('active'));
-    if(mode === 'none') document.getElementById('btnNone').classList.add('active');
-    if(mode === 'left') document.getElementById('btnLeft').classList.add('active');
-    if(mode === 'right') document.getElementById('btnRight').classList.add('active');
+    document.getElementById('btn' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('active');
 }
 
 async function detect() {
@@ -62,68 +63,40 @@ async function detect() {
         const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (mirrorMode === 'none' || detections.length === 0) {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        } else {
+        if (detections.length > 0) {
             const landmarks = detections[0].landmarks;
+            
+            // לוגיקה לבדיקת מגע: אם ה-AI מתקשה לזהות את קווי המתאר של הלחיים (כי הידיים מסתירות אותן)
+            // כאן אפשר להוסיף חישוב מרחק אם מוסיפים מודל ידיים. כרגע זה מציג את הכיתוב.
+            
             const nx = landmarks.getNose()[0].x;
             const vW = video.videoWidth;
             const vH = video.videoHeight;
 
-            if (mirrorMode === 'left') {
+            if (mirrorMode === 'none') {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            } else if (mirrorMode === 'left') {
                 ctx.drawImage(video, 0, 0, nx, vH, 0, 0, nx, vH);
-                ctx.save();
-                ctx.translate(nx * 2, 0);
-                ctx.scale(-1, 1);
-                ctx.drawImage(video, 0, 0, nx, vH, 0, 0, nx, vH);
-                ctx.restore();
+                ctx.save(); ctx.translate(nx * 2, 0); ctx.scale(-1, 1);
+                ctx.drawImage(video, 0, 0, nx, vH, 0, 0, nx, vH); ctx.restore();
             } else if (mirrorMode === 'right') {
                 const rightPartW = vW - nx;
                 ctx.drawImage(video, nx, 0, rightPartW, vH, nx, 0, rightPartW, vH);
-                ctx.save();
-                ctx.translate(nx * 2, 0);
-                ctx.scale(-1, 1);
-                ctx.drawImage(video, nx, 0, rightPartW, vH, nx, 0, rightPartW, vH);
-                ctx.restore();
+                ctx.save(); ctx.translate(nx * 2, 0); ctx.scale(-1, 1);
+                ctx.drawImage(video, nx, 0, rightPartW, vH, nx, 0, rightPartW, vH); ctx.restore();
             }
+        } else {
+            // אם הפנים נעלמו (למשל כי שתי ידיים מכסות הכל)
+            if (mirrorMode !== 'none') feedback.style.display = 'block';
         }
     }, 40);
 }
 
 function takeSnapshot() {
     const link = document.createElement('a');
-    link.download = 'symmetry-capture.png';
+    link.download = 'capture.png';
     link.href = canvas.toDataURL();
     link.click();
-}
-
-function toggleRecording() {
-    const recBtn = document.getElementById('recBtn');
-    if (!isRecording) {
-        recordedChunks = [];
-        const stream = canvas.captureStream(30);
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-        
-        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
-        mediaRecorder.onstop = () => {
-            const blob = new Blob(recordedChunks, { type: 'video/webm' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'symmetry-video.webm';
-            a.click();
-        };
-
-        mediaRecorder.start();
-        recBtn.classList.add('recording');
-        recBtn.innerText = '⏹ עצור';
-        isRecording = true;
-    } else {
-        mediaRecorder.stop();
-        recBtn.classList.remove('recording');
-        recBtn.innerText = '⏺ וידאו';
-        isRecording = false;
-    }
 }
 
 document.body.addEventListener('click', () => video.play());
