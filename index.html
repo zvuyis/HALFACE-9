@@ -3,27 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>DYNAMIC MIRROR V2</title>
+    <title>Symmetry AI - Pixel Perfect</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
     <script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
     <style>
         body { margin: 0; background: #000; overflow: hidden; }
-        #status { position: absolute; top: 20px; width: 100%; text-align: center; color: #0f0; z-index: 10; font-family: monospace; }
-        #btns { position: absolute; bottom: 30px; width: 100%; display: flex; justify-content: center; gap: 15px; z-index: 100; }
-        button { padding: 12px 20px; border-radius: 20px; border: 2px solid #0f0; background: rgba(0,0,0,0.8); color: #0f0; font-weight: bold; }
+        #ui { position: absolute; bottom: 20px; width: 100%; display: flex; justify-content: center; gap: 10px; z-index: 100; }
+        button { padding: 12px 20px; border-radius: 25px; border: 2px solid #00ff00; background: rgba(0,0,0,0.8); color: #00ff00; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div id="status">INITIALIZING AI...</div>
-    <div id="btns">
-        <button onclick="side='left'">LEFT SIDE</button>
-        <button onclick="side='right'">RIGHT SIDE</button>
-    </div>
-
 <script>
 let capture, faceMesh, face;
 let side = 'left';
-let smoothNoseX = 320; // התחלה במרכז
 
 function preload() {
     faceMesh = ml5.faceMesh({ maxFaces: 1, flipped: false });
@@ -39,56 +31,61 @@ function setup() {
 
 function draw() {
     background(0);
-    if (!face) {
-        document.getElementById('status').innerText = "LOOK AT CAMERA";
-        return;
-    }
-    document.getElementById('status').innerText = "TRACKING ACTIVE";
+    if (!face) return;
 
-    let nose = face.keypoints[1];
-    // מנגנון החלקה (Lerp) כדי שהקו לא יקפוץ
-    smoothNoseX = lerp(smoothNoseX, nose.x, 0.2);
+    // 1. זיהוי נקודת האף (ציר הסימטריה הדינמי)
+    let nose = face.keypoints[1]; 
+    let nx = nose.x; // מיקום האף בוידאו (0-640)
     
-    let cw = capture.width;
-    let ch = capture.height;
-    let screenScale = height / ch;
-    let screenNoseX = map(smoothNoseX, 0, cw, 0, cw * screenScale);
+    let vw = capture.width;
+    let vh = capture.height;
     
-    // חישוב הזזה כדי שהאף תמיד יהיה במרכז המסך הפיזי
-    let centeringOffset = (width / 2) - screenNoseX;
-    
+    // 2. חישוב יחס מסך (מילוי גובה)
+    let s = height / vh;
+    let dw = vw * s;
+    let dx = (width / 2) - (nx * s); // שומר את האף תמיד במרכז המסך הפיזי
+
     push();
-    translate(centeringOffset, 0);
-
     if (side === 'left') {
-        // מצייר צד שמאל עד האף
-        image(capture, 0, 0, screenNoseX, height, 0, 0, smoothNoseX, ch);
-        // משקף ימינה
+        // --- חצי שמאלי ---
+        // מצייר רק את החלק שמשמאל לאף
+        image(capture, dx, 0, nx * s, height, 0, 0, nx, vh);
+        
+        // --- חצי ימני (השיקוף) ---
         push();
-        translate(screenNoseX * 2, 0);
+        translate(width, 0);
         scale(-1, 1);
-        image(capture, 0, 0, screenNoseX, height, 0, 0, smoothNoseX, ch);
+        // מצייר שוב את החלק שמשמאל לאף, אבל הפוך
+        image(capture, (width/2), 0, nx * s, height, 0, 0, nx, vh);
         pop();
     } else {
-        // מצייר צד ימין מהאף
-        let rWidth = (cw - smoothNoseX) * screenScale;
-        image(capture, screenNoseX, 0, rWidth, height, smoothNoseX, 0, cw - smoothNoseX, ch);
-        // משקף שמאלה
+        // --- חצי ימני ---
+        let rightPartW = vw - nx;
+        image(capture, width/2, 0, rightPartW * s, height, nx, 0, rightPartW, vh);
+        
+        // --- חצי שמאלי (השיקוף) ---
         push();
-        translate(screenNoseX * 2, 0);
+        translate(width/2, 0);
         scale(-1, 1);
-        image(capture, screenNoseX, 0, rWidth, height, smoothNoseX, 0, cw - smoothNoseX, ch);
+        image(capture, 0, 0, rightPartW * s, height, nx, 0, rightPartW, vh);
         pop();
     }
-
-    // קו הסימטריה הדינמי - עכשיו בצבע ניאון
+    
+    // קו סימטריה שעוקב אחרי האף
     stroke(0, 255, 0);
-    strokeWeight(4);
-    line(screenNoseX, 0, screenNoseX, height);
+    strokeWeight(2);
+    line(width/2, 0, width/2, height);
     pop();
 }
 
-function touchStarted() { if(capture) capture.elt.play(); }
+function touchStarted() { if (capture) capture.elt.play(); }
+function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+function toggleSide(s) { side = s; }
 </script>
+
+<div id="ui">
+    <button onclick="side='left'">שכפל שמאל</button>
+    <button onclick="side='right'">שכפל ימין</button>
+</div>
 </body>
 </html>
