@@ -1,116 +1,137 @@
- <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; color: white; text-align: center; font-family: sans-serif; }
-        canvas { position: absolute; left: 0; top: 0; }
-        video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
-        #log { position: absolute; top: 10px; width: 100%; z-index: 100; background: rgba(0,0,0,0.5); }
-        body { margin: 0; background: #000; overflow: hidden; }
+        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; }
         canvas { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; object-fit: cover; }
-        video { display: none; } /* אנחנו לא צריכים לראות את הוידאו המקורי, רק את הקנבס */
-        #ui { position: absolute; bottom: 30px; width: 100%; display: flex; justify-content: center; gap: 15px; z-index: 100; }
-        button { padding: 15px 25px; border-radius: 30px; border: 2px solid #0f0; background: rgba(0,0,0,0.8); color: #0f0; font-weight: bold; font-size: 16px; }
+        video { display: none; }
+        #instruction { 
+            position: absolute; top: 30px; width: 100%; text-align: center; 
+            color: #fff; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 4px #000; z-index: 100;
+            transition: color 0.3s ease;
+        }
+        #ui { position: absolute; bottom: 20px; width: 100%; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; z-index: 100; padding: 10px; box-sizing: border-box; }
+        button { padding: 12px 18px; border-radius: 20px; border: 2px solid #0f0; background: rgba(0,0,0,0.8); color: #0f0; font-weight: bold; }
+        button.active { background: #0f0; color: #000; }
+        #recBtn.recording { border-color: red; color: red; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
     </style>
 </head>
 <body>
-    <div id="log">טוען מודלים...</div>
+    <div id="instruction">1. גע בלחיים בעזרת שתי הידיים</div>
     <video id="video" playsinline autoplay muted></video>
     <canvas id="canvas"></canvas>
     <div id="ui">
-        <button onclick="mirrorSide='left'">שכפל שמאל</button>
-        <button onclick="mirrorSide='right'">שכפל ימין</button>
+        <button onclick="setMode('none')" id="btnNone" class="active">רגיל</button>
+        <button onclick="setMode('left')" id="btnLeft">שמאל</button>
+        <button onclick="setMode('right')" id="btnRight">ימין</button>
+        <button onclick="takeSnapshot()" style="border-color: white; color: white;">📸 תמונה</button>
+        <button onclick="toggleRecording()" id="recBtn" style="border-color: #ff4444; color: #ff4444;">⏺ וידאו</button>
     </div>
 
 <script>
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
-const log = document.getElementById('log');
 const ctx = canvas.getContext('2d');
-let mirrorSide = 'left';
+const mainText = document.getElementById('instruction');
+let mirrorMode = 'none';
+let mediaRecorder;
+let recordedChunks = [];
+let isRecording = false;
 
 async function setup() {
-    log.innerText = "טוען AI...";
-    // טעינת המודלים ישירות משרת חיצוני
     await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
     await faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
-
-    log.innerText = "מבקש מצלמה...";
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
     video.srcObject = stream;
-
     video.onloadedmetadata = () => {
-        canvas.width = video.offsetWidth;
-        canvas.height = video.offsetHeight;
-        log.innerText = "מחפש פנים - גע במסך!";
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         detect();
     };
 }
 
-async function detect() {
-    const displaySize = { width: video.offsetWidth, height: video.offsetHeight };
-    faceapi.matchDimensions(canvas, displaySize);
+function setMode(mode) {
+    mirrorMode = mode;
+    document.querySelectorAll('#ui button').forEach(btn => btn.classList.remove('active'));
+    document.getElementById('btn' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('active');
+}
 
+async function detect() {
     setInterval(async () => {
         const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks();
-        const resizedDetections = faceapi.resizeResults(detections, displaySize);
-
-        const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         if (detections.length > 0) {
-            log.style.display = 'none';
-            // ציור נקודות הפנים
-            faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
-            
-            // ציור קו האף (ציר הסימטריה)
             const landmarks = detections[0].landmarks;
-            const nose = landmarks.getNose();
-            const topNose = nose[0]; // הנקודה העליונה של האף
-            const nx = nose[0].x; // מיקום האף (ציר ה-X)
-
+            const nx = landmarks.getNose()[0].x;
             const vW = video.videoWidth;
             const vH = video.videoHeight;
 
-            if (mirrorSide === 'left') {
-                // 1. מצייר את חצי הפנים השמאלי (מהקצה עד האף)
-                ctx.drawImage(video, 0, 0, nx, vH, 0, 0, nx, vH);
-                
-                // 2. משקף את אותו החצי לצד ימין
-                ctx.save();
-                ctx.translate(nx * 2, 0);
-                ctx.scale(-1, 1);
-                ctx.drawImage(video, 0, 0, nx, vH, 0, 0, nx, vH);
-                ctx.restore();
+            // בדיקת "נגיעה": אם נקודות קווי המתאר של הלחיים מוסתרות
+            // אנחנו בודקים את ה-Score של נקודות 0-16 (קו הלסת והלחיים)
+            const jawPoints = landmarks.getJawOutline();
+            const isTouching = jawPoints.some(pt => pt._x === undefined || pt._y === undefined); // במודלים מסוימים
+            
+            // שיטה חלופית: אם הפנים מזוהות אבל הידיים בפריים, המרחק בין קצוות הפנים משתנה
+            // לצרכי פשטות באייפון, נשתמש בזיהוי חסימה חלקי:
+            if (detections[0].detection.score < 0.8) {
+                mainText.innerText = "מצוין!";
+                mainText.style.color = "#0f0";
             } else {
-                // 1. מצייר את חצי הפנים הימני (מהאף עד הקצה)
-                const rightPartW = vW - nx;
-                ctx.drawImage(video, nx, 0, rightPartW, vH, nx, 0, rightPartW, vH);
-                
-                // 2. משקף את אותו החצי לצד שמאל
-                ctx.save();
-                ctx.translate(nx * 2, 0);
-                ctx.scale(-1, 1);
-                ctx.drawImage(video, nx, 0, rightPartW, vH, nx, 0, rightPartW, vH);
-                ctx.restore();
+                mainText.innerText = "1. גע בלחיים בעזרת שתי הידיים";
+                mainText.style.color = "#fff";
             }
 
-            // קו ירוק דק על ציר הסימטריה
-            ctx.strokeStyle = '#00ff00';
-            ctx.lineWidth = 5;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(topNose.x * (canvas.width/video.videoWidth), 0);
-            ctx.lineTo(topNose.x * (canvas.width/video.videoWidth), canvas.height);
-            ctx.moveTo(nx, 0); ctx.lineTo(nx, canvas.height);
-            ctx.stroke();
+            if (mirrorMode === 'none') {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            } else if (mirrorMode === 'left') {
+                ctx.drawImage(video, 0, 0, nx, vH, 0, 0, nx, vH);
+                ctx.save(); ctx.translate(nx * 2, 0); ctx.scale(-1, 1);
+                ctx.drawImage(video, 0, 0, nx, vH, 0, 0, nx, vH); ctx.restore();
+            } else if (mirrorMode === 'right') {
+                const rightPartW = vW - nx;
+                ctx.drawImage(video, nx, 0, rightPartW, vH, nx, 0, rightPartW, vH);
+                ctx.save(); ctx.translate(nx * 2, 0); ctx.scale(-1, 1);
+                ctx.drawImage(video, nx, 0, rightPartW, vH, nx, 0, rightPartW, vH); ctx.restore();
+            }
         } else {
-            log.style.display = 'block';
-            log.innerText = "לא מזהה פנים - תתקרב למצלמה";
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         }
-    }, 100);
-    }, 40); // 25 פריימים בשנייה לעבודה חלקה
+    }, 40);
+}
+
+function takeSnapshot() {
+    const link = document.createElement('a');
+    link.download = 'capture.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+}
+
+function toggleRecording() {
+    const recBtn = document.getElementById('recBtn');
+    if (!isRecording) {
+        recordedChunks = [];
+        const stream = canvas.captureStream(30);
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'symmetry.webm'; a.click();
+        };
+        mediaRecorder.start();
+        recBtn.classList.add('recording'); recBtn.innerText = '⏹ עצור'; isRecording = true;
+    } else {
+        mediaRecorder.stop(); recBtn.classList.remove('recording'); recBtn.innerText = '⏺ וידאו'; isRecording = false;
+    }
 }
 
 document.body.addEventListener('click', () => video.play());
+setup();
+</script>
+</body>
+</html>
