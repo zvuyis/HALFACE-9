@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Symmetry AI - Pixel Perfect</title>
+    <title>Symmetry AI - Final</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
     <script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
     <style>
         body { margin: 0; background: #000; overflow: hidden; }
         #ui { position: absolute; bottom: 20px; width: 100%; display: flex; justify-content: center; gap: 10px; z-index: 100; }
-        button { padding: 12px 20px; border-radius: 25px; border: 2px solid #00ff00; background: rgba(0,0,0,0.8); color: #00ff00; font-weight: bold; }
+        button { padding: 15px 25px; border-radius: 30px; border: 2px solid #fff; background: #000; color: #fff; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -31,61 +31,55 @@ function setup() {
 
 function draw() {
     background(0);
-    if (!face) return;
+    if (!face || !face.keypoints) return;
 
-    // 1. זיהוי נקודת האף (ציר הסימטריה הדינמי)
+    // 1. זיהוי נקודת האף המדויקת מה-AI
     let nose = face.keypoints[1]; 
-    let nx = nose.x; // מיקום האף בוידאו (0-640)
+    let nx = nose.x; 
+    let ny = nose.y;
     
     let vw = capture.width;
     let vh = capture.height;
     
-    // 2. חישוב יחס מסך (מילוי גובה)
-    let s = height / vh;
-    let dw = vw * s;
-    let dx = (width / 2) - (nx * s); // שומר את האף תמיד במרכז המסך הפיזי
+    // 2. חצי רוחב המסך הפיזי
+    let halfW = width / 2;
 
-    push();
     if (side === 'left') {
-        // --- חצי שמאלי ---
-        // מצייר רק את החלק שמשמאל לאף
-        image(capture, dx, 0, nx * s, height, 0, 0, nx, vh);
+        // צד שמאל: לוקח רק את מה שמשמאל לאף ומותח על חצי מסך
+        // (image, dx, dy, dW, dH, sx, sy, sW, sH)
+        image(capture, 0, 0, halfW, height, 0, 0, nx, vh);
         
-        // --- חצי ימני (השיקוף) ---
+        // צד ימין: משקף את אותו החלק בדיוק
         push();
         translate(width, 0);
         scale(-1, 1);
-        // מצייר שוב את החלק שמשמאל לאף, אבל הפוך
-        image(capture, (width/2), 0, nx * s, height, 0, 0, nx, vh);
+        image(capture, 0, 0, halfW, height, 0, 0, nx, vh);
         pop();
     } else {
-        // --- חצי ימני ---
-        let rightPartW = vw - nx;
-        image(capture, width/2, 0, rightPartW * s, height, nx, 0, rightPartW, vh);
+        // צד ימין: לוקח רק את מה שמימין לאף ומותח על חצי מסך
+        let sourceWidth = vw - nx;
+        image(capture, halfW, 0, halfW, height, nx, 0, sourceWidth, vh);
         
-        // --- חצי שמאלי (השיקוף) ---
+        // צד שמאל: משקף את צד ימין
         push();
-        translate(width/2, 0);
+        translate(halfW, 0);
         scale(-1, 1);
-        image(capture, 0, 0, rightPartW * s, height, nx, 0, rightPartW, vh);
+        image(capture, 0, 0, halfW, height, nx, 0, sourceWidth, vh);
         pop();
     }
     
-    // קו סימטריה שעוקב אחרי האף
+    // קו הפרדה ויזואלי במרכז (איפה שהאף אמור להיות)
     stroke(0, 255, 0);
     strokeWeight(2);
-    line(width/2, 0, width/2, height);
-    pop();
+    line(halfW, 0, halfW, height);
 }
 
 function touchStarted() { if (capture) capture.elt.play(); }
-function windowResized() { resizeCanvas(windowWidth, windowHeight); }
-function toggleSide(s) { side = s; }
 </script>
 
 <div id="ui">
-    <button onclick="side='left'">שכפל שמאל</button>
-    <button onclick="side='right'">שכפל ימין</button>
+    <button onclick="side='left'">שמאל כפול</button>
+    <button onclick="side='right'">ימין כפול</button>
 </div>
 </body>
 </html>
